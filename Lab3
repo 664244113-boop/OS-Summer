@@ -1,0 +1,90 @@
+#include <iostream>
+#include <windows.h>
+#include <string>
+
+using namespace std;
+
+// ฟังก์ชันสำหรับโปรเซสลูก
+void childProcess() {
+    cout << "\n=== CHILD PROCESS ===" << endl;
+    cout << "Child PID: " << GetCurrentProcessId() << endl;
+
+    // จำลองการทำงานของโปรเซสลูก
+    for (int i = 1; i <= 3; i++) {
+        cout << "Child: Working... " << i << "/3" << endl;
+        Sleep(500); // พัก 0.5 วินาที
+    }
+    cout << "Child: Exiting with status 0" << endl;
+}
+
+// ฟังก์ชันสำหรับโปรเซสพ่อ
+void parentProcess(PROCESS_INFORMATION pi) {
+    cout << "\n=== PARENT PROCESS ===" << endl;
+    cout << "Parent PID: " << GetCurrentProcessId() << endl;
+    cout << "Created child with PID: " << pi.dwProcessId << endl;
+
+    // พ่อจำลองการทำงานไปด้วยขณะที่ลูกทำงานอยู่ (Concurrent)
+    for (int i = 1; i <= 3; i++) {
+        cout << "Parent: Doing work... " << i << "/3" << endl;
+        Sleep(700); // พัก 0.7 วินาที
+    }
+
+    // รอจนกว่าโปรเซสลูกจะทำงานเสร็จ (Synchronization)
+    cout << "\nParent: Waiting for child process to finish..." << endl;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    // ดึงสถานะการจบการทำงานของลูก
+    DWORD exitCode;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    cout << "Parent: Child exited with status " << exitCode << endl;
+
+    // คืนทรัพยากรให้ระบบ (สำคัญมากบน Windows)
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+}
+
+int main(int argc, char* argv[]) {
+    // 1. ตรวจสอบว่าเป็นโปรเซสลูกหรือไม่ (ดูจากคำว่า "child" ที่ส่งมา)
+    if (argc > 1 && string(argv[1]) == "child") {
+        childProcess();
+        return 0; // ลูกทำงานเสร็จ จบการทำงานที่นี่
+    }
+
+    // 2. ถ้าไม่มีคำว่า "child" แสดงว่าเป็นโปรเซสพ่อ
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(NULL, exePath, MAX_PATH); // หาพาธของไฟล์ .exe นี้
+
+    // สร้าง Command line เพื่อสั่งรันตัวเองใหม่ และต่อท้ายด้วย "child"
+    string cmdLine = string(exePath) + " child";
+    char* cmdLineChar = const_cast<char*>(cmdLine.c_str());
+
+    // โครงสร้างข้อมูลสำหรับสร้างโปรเซสบน Windows
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+
+    // 3. สร้างโปรเซสลูก
+    if (!CreateProcessA(
+            NULL,           // ไม่ระบุชื่อ module (ใช้จาก Command line แทน)
+            cmdLineChar,    // Command line ("Lab3-1.exe child")
+            NULL,           // Process handle not inheritable
+            NULL,           // Thread handle not inheritable
+            FALSE,          // Set handle inheritance to FALSE
+            0,              // No creation flags
+            NULL,           // Use parent's environment block
+            NULL,           // Use parent's starting directory
+            &si,            // Pointer to STARTUPINFO structure
+            &pi             // Pointer to PROCESS_INFORMATION structure
+        )) {
+        cerr << "CreateProcess failed (" << GetLastError() << ").\n";
+        return 1;
+    }
+
+    // 4. ให้โปรเซสพ่อไปทำงานต่อในฟังก์ชันของตัวเอง
+    parentProcess(pi);
+
+    return 0;
+}
